@@ -1,64 +1,74 @@
 import csv
-import sqlite3
 import uuid
-from datetime import datetime
+import cx_Oracle
 
 # define the database name
-db_name = "car_listings.db"
+
+
+sid = "orcl"
 
 # define csv file name
 csv_name = "vehicles.csv"
 
-# create a connection to the database
-conn = sqlite3.connect(db_name)
+# Establish a connection to the database
+dsn = cx_Oracle.makedsn(hostname, port, sid)
+conn = cx_Oracle.connect(username, password, dsn)
 c = conn.cursor()
 
 # create the tables
 print("Creating tables...")
 
 print("Creating Manufacturer table...")
-c.execute("""CREATE TABLE IF NOT EXISTS Manufacturer (
-                ManID TEXT PRIMARY KEY,
-                Name TEXT
-            )""")
+c.execute(
+    """CREATE TABLE Manufacturer (
+        ManID VARCHAR2(36) PRIMARY KEY,
+        Name VARCHAR2(255)
+    )"""
+)
 
 print("Creating Model table...")
-c.execute("""CREATE TABLE IF NOT EXISTS Model (
-                ModelID TEXT PRIMARY KEY,
-                Name TEXT,
-                Year INTEGER,
-                ManID TEXT,
-                FOREIGN KEY (ManID) REFERENCES Manufacturer (ManID)
-            )""")
+c.execute(
+    """CREATE TABLE Model (
+        ModelID VARCHAR2(36) PRIMARY KEY,
+        Name VARCHAR2(255),
+        Year NUMBER,
+        ManID VARCHAR2(36),
+        FOREIGN KEY (ManID) REFERENCES Manufacturer(ManID)
+    )"""
+)
 
 print("Creating Location table...")
-c.execute("""CREATE TABLE IF NOT EXISTS Location (
-                LocationID TEXT PRIMARY KEY,
-                State TEXT,
-                Region TEXT
-            )""")
+c.execute(
+    """CREATE TABLE Location (
+        LocationID VARCHAR2(36) PRIMARY KEY,
+        State VARCHAR2(2),
+        Region VARCHAR2(255)
+    )"""
+)
 
 print("Creating Listing table...")
-c.execute("""CREATE TABLE IF NOT EXISTS Listing (
-                ListingID TEXT PRIMARY KEY,
-                Date TEXT,
-                Image TEXT,
-                Price REAL,
-                Mileage INTEGER,
-                Description TEXT,
-                ModelID TEXT,
-                LocationID TEXT,
-                FOREIGN KEY (ModelID) REFERENCES Model (ModelID),
-                FOREIGN KEY (LocationID) REFERENCES Location (LocationID)
-            )""")
+c.execute(
+    """CREATE TABLE IF NOT EXISTS Listing (
+        ListingID VARCHAR2(36) PRIMARY KEY,
+        Date TIMESTAMP,
+        Image VARCHAR2(255),
+        Price NUMBER,
+        Mileage NUMBER,
+        Description VARCHAR2(4000),
+        ModelID VARCHAR2(36),
+        LocationID VARCHAR2(36),
+        FOREIGN KEY (ModelID) REFERENCES Model(ModelID),
+        FOREIGN KEY (LocationID) REFERENCES Location(LocationID)
+    )"""
+)
 
 print("Done creating tables.")
 
 # define the columns to be used
-manufacturer_cols = ['manufacturer']
-model_cols = ['model', 'year']
-location_cols = ['state', 'region']
-listing_cols = ['posting_date', 'image_url', 'price', 'odometer', 'description']
+manufacturer_cols = ["manufacturer"]
+model_cols = ["model", "year"]
+location_cols = ["state", "region"]
+listing_cols = ["posting_date", "image_url", "price", "odometer", "description"]
 
 # keep a map of manufacturer names to IDs
 manufacturers = {}
@@ -67,7 +77,7 @@ locations = {}
 
 # read the CSV file and insert data into tables
 count = 0
-with open('vehicles.csv') as csvfile:
+with open("vehicles.csv") as csvfile:
     print("Reading CSV file...")
     reader = csv.DictReader(csvfile)
     print("Starting Data Insertion...")
@@ -78,54 +88,69 @@ with open('vehicles.csv') as csvfile:
             if not row[col] or len(row[col]) == 0:
                 has_all_cols = False
                 break
-            
-        if not has_all_cols: continue
-        
+
+        if not has_all_cols:
+            continue
 
         # generate unique IDs
         man_id = str(uuid.uuid4())
         model_id = str(uuid.uuid4())
         location_id = str(uuid.uuid4())
-        listing_id = str(uuid.uuid4())        
+        listing_id = str(uuid.uuid4())
 
         # insert manufacturer data
-        if row['manufacturer'] not in manufacturers:
-            manufacturers[row['manufacturer']] = True
+        if row["manufacturer"] not in manufacturers:
+            manufacturers[row["manufacturer"]] = True
             c.execute(
-                "INSERT INTO Manufacturer VALUES (?, ?)",
-                (man_id, row['manufacturer'])
+                "INSERT INTO Manufacturer (ManID, Name) VALUES (:man_id, :name)", 
+                { 'man_id': man_id, 'name': row["manufacturer"]}
             )
 
         # insert model data
-        if (row['model'] + row['year']) not in models: 
-            models[row['model'] + row['year']] = True
+        if (row["model"] + row["year"]) not in models:
+            models[row["model"] + row["year"]] = True
             c.execute(
-                "INSERT INTO Model VALUES (?, ?, ?, ?)",
-                (model_id, row['model'], int(row['year']), man_id)
+                "INSERT INTO Model (ModelID, Name, Year, ManID) VALUES (:model_id, :name, :year, :man_id)",
+                { 
+                    'model_id': model_id, 
+                    'name': row["model"], 
+                    'year': int(row["year"]), 
+                    'man_id': man_id
+                },
             )
 
         # insert location data
-        if (row['state'] + row['region']) not in locations:
-            locations[row['state'] + row['region']] = True
+        if (row["state"] + row["region"]) not in locations:
+            locations[row["state"] + row["region"]] = True
             c.execute(
-                "INSERT INTO Location VALUES (?, ?, ?)",
-                (location_id, row['state'], row['region'])
+                "INSERT INTO Location VALUES (:location_id, :state, :region)",
+                {
+                    'location_id': location_id,
+                    'state': row["state"],
+                    'region': row["region"],
+                },
             )
 
         # insert listing data
         c.execute(
-            "INSERT INTO Listing VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                listing_id, row['posting_date'], row['image_url'],
-                float(row['price']), int(row['odometer']),
-                row['description'], model_id, location_id
-            )
+            "INSERT INTO Listing VALUES (:listing_id, :date, :image, :price, :mileage, :description, :model_id, :location_id)",
+            {
+                'listing_id': listing_id,
+                'date': row["posting_date"],
+                'image': row["image_url"],
+                'price': float(row["price"]),
+                'mileage': int(row["odometer"]),
+                'description': row["description"],
+                'model_id': model_id,
+                'location_id': location_id,
+            },
         )
-        
-        count += 1
-        if count % 1000 == 0: print("Processed " + str(count) + " rows.")
 
-print ("Done inserting data.")
+        count += 1
+        if count % 1000 == 0:
+            print("Processed " + str(count) + " rows.")
+
+print("Done inserting data.")
 
 # commit changes and close the connection
 conn.commit()
